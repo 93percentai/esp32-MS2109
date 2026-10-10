@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.16)
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(ms2109_wireless_display)
+if(NOT IDF_TARGET STREQUAL "esp32s31")
+    message(FATAL_ERROR "This firmware requires ESP32-S31 (idf.py --preview set-target esp32s31)")
+endif()

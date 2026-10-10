@@ -1,0 +1,30 @@
+menu "MS2109 wireless display"
+    config CAPTURE_WIDTH
+        int "UVC capture width"
+        default 640
+        range 160 1280
+    config CAPTURE_HEIGHT
+        int "UVC capture height"
+        default 480
+        range 120 720
+    config CAPTURE_FPS
+        int "Capture FPS (0 uses card default)"
+        default 0
+        range 0 60
+    config CAPTURE_FRAME_KB
+        int "Maximum compressed frame size (KiB)"
+        default 512
+        range 128 2048
+    config CAPTURE_VID
+        hex "USB vendor ID (0 accepts any UVC device)"
+        default 0x0
+    config CAPTURE_PID
+        hex "USB product ID (0 accepts any UVC device)"
+        default 0x0
+    config CAPTURE_MS2109_HEADERS
+        bool "Strip MS2109 continuation headers for known MS2109 IDs"
+        default y
+        help
+            Applies only to 534d:2109 and 345f:2109 MJPEG devices using
+            16384-byte bulk URBs. See components/usb_host_uvc/PATCHES.md.
+endmenu
