@@ -121,6 +121,15 @@ static esp_err_t uvc_host_device_connected(uint8_t addr)
 
     if (usb_host_device_open(p_uvc_host_driver->usb_client_hdl, addr, &dev_hdl) == ESP_OK) {
         if (usb_host_get_active_config_descriptor(dev_hdl, &config_desc) == ESP_OK) {
+            const usb_device_desc_t *device_desc = NULL;
+            usb_device_info_t info = {0};
+            if (usb_host_get_device_descriptor(dev_hdl, &device_desc) == ESP_OK &&
+                    usb_host_device_info(dev_hdl, &info) == ESP_OK) {
+                ESP_LOGI(TAG, "USB address=%u VID:PID=%04x:%04x speed=%s config=%u bytes",
+                         addr, device_desc->idVendor, device_desc->idProduct,
+                         info.speed == USB_SPEED_HIGH ? "high" : info.speed == USB_SPEED_FULL ? "full" : "low",
+                         config_desc->wTotalLength);
+            }
             is_uvc_device = uvc_desc_is_uvc_device(config_desc);
         }
         ESP_RETURN_ON_ERROR(usb_host_device_close(p_uvc_host_driver->usb_client_hdl, dev_hdl), TAG, "Unable to close USB device");

@@ -11,6 +11,11 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "usb/uvc_host.h"
+#include "usb/usb_host.h"
+
+#if CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE < 4096
+#error "MS2109 requires CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE >= 4096; update sdkconfig in menuconfig (USB-OTG)."
+#endif
 #include "display.h"
 #include "video_store.h"
 #include "jpeg_frame.h"
@@ -20,6 +25,7 @@ static QueueHandle_t s_frames;
 static SemaphoreHandle_t s_gate;
 static bool s_accept;
 static atomic_bool s_disconnected;
+static atomic_uint s_buffer_errors;
 
 static bool frame_cb(const uvc_host_frame_t *frame, void *ctx)
 {
@@ -35,6 +41,7 @@ static void stream_event(const uvc_host_stream_event_data_t *event, void *ctx)
 {
     switch (event->type) {
     case UVC_HOST_DEVICE_DISCONNECTED:
+        ESP_LOGW(TAG, "Capture card disconnected");
         atomic_store(&s_disconnected, true);
         break;
     case UVC_HOST_TRANSFER_ERROR:
@@ -42,9 +49,14 @@ static void stream_event(const uvc_host_stream_event_data_t *event, void *ctx)
         ESP_LOGW(TAG, "USB transfer error: %s", esp_err_to_name(event->transfer_error.error));
         break;
     case UVC_HOST_FRAME_BUFFER_OVERFLOW:
-    case UVC_HOST_FRAME_BUFFER_UNDERFLOW:
+    case UVC_HOST_FRAME_BUFFER_UNDERFLOW: {
         video_drop(false);
+        unsigned errors = atomic_fetch_add(&s_buffer_errors, 1) + 1;
+        if (errors == 1 || errors % 100 == 0)
+            ESP_LOGW(TAG, "Frame buffer %s (%u total buffer errors)",
+                event->type == UVC_HOST_FRAME_BUFFER_OVERFLOW ? "overflow" : "underflow", errors);
         break;
+    }
     default: break;
     }
 }
@@ -86,8 +98,11 @@ static void capture_task(void *arg)
         atomic_store(&s_disconnected, false);
         esp_err_t err = uvc_host_stream_open(&config, pdMS_TO_TICKS(3000), &stream);
         if (err != ESP_OK) {
-            ESP_LOGW(TAG, "Waiting for %ux%u MJPEG device: %s (see mode list above)",
-                config.vs_format.h_res, config.vs_format.v_res, esp_err_to_name(err));
+            usb_host_lib_info_t info = {0};
+            usb_host_lib_info(&info);
+            ESP_LOGW(TAG, "Open %ux%u MJPEG %.1f fps failed: %s; enumerated USB devices=%u",
+                config.vs_format.h_res, config.vs_format.v_res, (double)config.vs_format.fps,
+                esp_err_to_name(err), (unsigned)info.num_devices);
             vTaskDelay(pdMS_TO_TICKS(2000));
             continue;
         }
@@ -96,7 +111,10 @@ static void capture_task(void *arg)
         s_accept = true;
         xSemaphoreGive(s_gate);
         err = uvc_host_stream_start(stream);
+        ESP_LOGI(TAG, "Stream start: %s", esp_err_to_name(err));
         video_set_connected(err == ESP_OK);
+        unsigned failures = 0;
+        bool first_frame = true;
         int64_t last_received = esp_timer_get_time();
         while (err == ESP_OK && !atomic_load(&s_disconnected)) {
             const uvc_host_frame_t *frame;
@@ -109,9 +127,23 @@ static void capture_task(void *arg)
                     esp_err_t decode = display_jpeg(frame->data, jpeg_size,
                         frame->vs_format.h_res, frame->vs_format.v_res);
                     video_set_decode_time(esp_timer_get_time() - start);
-                    if (decode != ESP_OK) video_drop(true);
-                    else video_publish(frame->data, jpeg_size, frame->vs_format.h_res, frame->vs_format.v_res);
-                } else video_drop(true);
+                    if (decode != ESP_OK) {
+                        video_drop(true);
+                        if (++failures == 1 || failures % 100 == 0)
+                            ESP_LOGW(TAG, "JPEG decode failed: %s (%u failures)", esp_err_to_name(decode), failures);
+                    } else {
+                        if (first_frame) {
+                            ESP_LOGI(TAG, "First decoded frame: %ux%u, %u JPEG bytes",
+                                frame->vs_format.h_res, frame->vs_format.v_res, (unsigned)jpeg_size);
+                            first_frame = false;
+                        }
+                        video_publish(frame->data, jpeg_size, frame->vs_format.h_res, frame->vs_format.v_res);
+                    }
+                } else {
+                    video_drop(true);
+                    if (++failures == 1 || failures % 100 == 0)
+                        ESP_LOGW(TAG, "Invalid JPEG frame: %u bytes (%u failures)", (unsigned)frame->data_len, failures);
+                }
                 ESP_ERROR_CHECK(uvc_host_frame_return(stream, (uvc_host_frame_t *)frame));
             }
             if (esp_timer_get_time() - last_received > 10000000) {
@@ -136,6 +168,8 @@ static void capture_task(void *arg)
 
 esp_err_t capture_init(void)
 {
+    ESP_LOGI(TAG, "USB control transfer limit=%u bytes; requested VID:PID=%04x:%04x",
+        CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE, CONFIG_CAPTURE_VID, CONFIG_CAPTURE_PID);
     s_frames = xQueueCreate(2, sizeof(uvc_host_frame_t *));
     s_gate = xSemaphoreCreateMutex();
     if (!s_frames || !s_gate) return ESP_ERR_NO_MEM;

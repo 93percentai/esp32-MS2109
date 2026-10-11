@@ -25,3 +25,14 @@ between products. The quirk is deliberately limited to known IDs and boundary
 signatures. Other IDs use upstream parsing and need device-specific evidence
 before enabling a new quirk. There was no verified MS2109 + S31 result found
 in this search; actual hardware verification remains outstanding.
+
+## Enumeration descriptor capacity
+
+The USB host component rejects `wTotalLength` above
+`CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE` in `src/enum.c` before emitting
+a new-device event to UVC. Its default is 256 bytes; the MS2109 High-Speed
+configuration descriptor published in the Alu investigation is about 1.2 KiB.
+The firmware now reserves 4096 bytes and checks this setting at compile time.
+This fixes a concrete enumeration limit; the actual card still needs hardware
+verification. Browser logs distinguish enumeration failures from unsupported
+modes and JPEG failures.

@@ -11,6 +11,7 @@
 #include "freertos/task.h"
 #include "video_store.h"
 #include "wifi_mgr.h"
+#include "app_logs.h"
 
 static httpd_handle_t s_web, s_stream;
 static atomic_bool s_stop_stream;
@@ -107,6 +108,8 @@ esp_err_t web_server_start(void)
     config.send_wait_timeout = 3;
     esp_err_t err = httpd_start(&s_web, &config);
     if (err != ESP_OK) return err;
+    err = app_logs_register(s_web);
+    if (err != ESP_OK) goto fail;
     const httpd_uri_t routes[] = {
         {.uri = "/", .method = HTTP_GET, .handler = root},
         {.uri = "/status", .method = HTTP_GET, .handler = status},

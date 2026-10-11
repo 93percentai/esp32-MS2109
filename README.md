@@ -53,6 +53,12 @@ port is reserved for the capture card. Default configuration selects the
 board's 16 MB flash and 250 MHz PSRAM configuration from the factory example.
 The application partition is 6 MB; no OTA updater is included.
 
+For an existing checkout, set `CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=4096`
+in `firmware/sdkconfig` (or use `menuconfig` → USB-OTG → largest default-endpoint
+transfer size). Defaults only apply when creating a configuration. The build
+rejects the old 256-byte setting: MS2109 configuration descriptors can exceed
+1 KiB and otherwise fail enumeration before the UVC driver sees the card.
+
 In the prepared cloud workspace, first source
 `/workspace/setup/activate-idf61.sh`. It selects the tested SDK and compiler.
 
@@ -87,9 +93,19 @@ Frames older than 3 seconds are hidden/refused rather than presented as live.
 | URL | Response |
 | --- | --- |
 | `http://DEVICE_IP/` | Browser viewer with reconnect, snapshot and details controls |
+| `http://DEVICE_IP/logs` | Auto-refreshing device logs with download button |
+| `http://DEVICE_IP/logs.txt` | Plain-text recent application logs |
 | `http://DEVICE_IP/status` | JSON capture and Wi-Fi metrics |
 | `http://DEVICE_IP/snapshot.jpg` | Latest fresh JPEG; 503 when unavailable |
 | `http://DEVICE_IP:81/stream` | Multipart MJPEG stream |
+
+The logs also work during Wi-Fi setup at **http://192.168.4.1/logs**. They
+retain the most recent 16 KiB of ESP application logs in RAM (configurable),
+including enumeration errors, USB identity/speed, advertised modes, stream
+start and JPEG failures. Download the logs after connecting/reconnecting the
+card if capture still fails. The buffer resets on reboot and reports overwritten
+or truncated bytes; ROM/bootloader and raw `printf` descriptor dumps remain
+serial-only. Serial logging continues alongside browser logging.
 
 These are local HTTP endpoints without authentication. Keep them on your
 trusted LAN. They do not require an internet service or a browser camera plugin.
@@ -106,5 +122,6 @@ Host tests exercise malformed/overlong credentials, SSID escaping, MS2109
 payload-header boundaries and aspect-preserving RGB565 scaling with padded
 source strides. They use AddressSanitizer and UndefinedBehaviorSanitizer.
 They also check captive DNS packet bounds and concurrent snapshot ownership,
-including rejecting stale frames after capture disconnects.
+including rejecting stale frames after capture disconnects. Log-ring tests
+check wrapping, oversized writes, overwrite counts and bounded snapshots.
 See [THIRD_PARTY.md](THIRD_PARTY.md) for reused code and licenses.

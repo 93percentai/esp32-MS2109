@@ -13,3 +13,7 @@ ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -pthrea
     -Itests/support -Ifirmware/main tests/test_video_store.c firmware/main/video_store.c \
     -o work/tests/test_video_store
 ./work/tests/test_video_store
+${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
+    -Ifirmware/main tests/test_log_buffer.c firmware/main/log_buffer.c \
+    -o work/tests/test_log_buffer
+./work/tests/test_log_buffer

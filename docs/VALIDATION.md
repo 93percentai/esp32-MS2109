@@ -48,3 +48,21 @@ For mismatched modes, configure a mode from the printed card list. For frame
 overflow, increase the compressed buffer cap. For corrupt JPEGs, record VID/PID
 and payload-boundary evidence before changing the driver quirk. High capture
 FPS is not a promise of equivalent Wi-Fi or LCD FPS.
+
+## Detection and browser logs update
+
+Raised the USB enumeration control-transfer cap from 256 to 4096 bytes and
+added a compile-time guard for existing configurations. Added `/logs` and
+`/logs.txt` on both LAN and setup AP, retaining 16 KiB of application logs
+while preserving serial output. Host sanitizer tests cover ring wrap, oversized
+writes, overwrite accounting and snapshot bounds against a reference history.
+
+Verification passed: ESP-IDF v6.1 `esp32s31` preview build and size check
+with 4096-byte control transfers and the 16 KiB log buffer; all ASan/UBSan
+host tests; JavaScript syntax and simulated log-page refresh/download/error
+handling. Application image: 1,526,872 bytes. No physical board was attached.
+
+Hardware follow-up: open the logs page before reconnecting the card; confirm
+VID/PID, High Speed, descriptor length, modes, stream start and first decoded
+frame. Download logs if any stage fails. Confirm logs refresh during streaming
+and setup, downloads preserve text, and old logs expire with an overwrite count.

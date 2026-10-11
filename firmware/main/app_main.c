@@ -13,6 +13,7 @@
 #include "video_store.h"
 #include "web_server.h"
 #include "wifi_mgr.h"
+#include "app_logs.h"
 
 static bridge_config_t s_config;
 static atomic_bool s_setup_requested;
@@ -42,6 +43,7 @@ static void network_task(void *arg)
 
 void app_main(void)
 {
+    app_logs_init();
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_ERROR_CHECK(nvs_flash_erase());

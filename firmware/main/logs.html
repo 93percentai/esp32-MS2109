@@ -1,0 +1,26 @@
+<!doctype html><html lang="en"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>MS2109 device logs</title>
+<style>body{background:#111820;color:#eef3f7;font:16px system-ui;margin:24px}a{color:#a7dcff}
+button{padding:8px;margin:4px}pre{font:13px monospace;white-space:pre-wrap;overflow-wrap:anywhere;
+background:#080d12;padding:16px;border-radius:8px}label{margin:12px}</style>
+<h1>Device logs</h1><p><a href="/">Viewer / Wi-Fi setup</a> · <a href="/logs.txt" target="_blank">Plain text</a></p>
+<p>Recent application logs, including USB enumeration and capture failures. Resets on reboot.</p>
+<button id="refresh">Refresh</button><button id="download">Download logs</button>
+<label><input id="auto" type="checkbox" checked>Auto-refresh every 2 seconds</label>
+<p id="state" role="status">Loading…</p><pre id="output"></pre>
+<script>
+const output=document.getElementById('output'),state=document.getElementById('state');
+let busy=false;
+async function refresh(){
+ if(busy)return;busy=true;
+ try{const r=await fetch('/logs.txt',{cache:'no-store',signal:AbortSignal.timeout(5000)});
+ if(!r.ok)throw Error('HTTP '+r.status);output.textContent=await r.text();state.textContent='Updated '+new Date().toLocaleTimeString();
+ }catch(e){state.textContent='Could not fetch logs: '+e.message}finally{busy=false}
+}
+document.getElementById('refresh').onclick=refresh;
+document.getElementById('download').onclick=()=>{
+ const url=URL.createObjectURL(new Blob([output.textContent],{type:'text/plain'}));
+ const a=document.createElement('a');a.href=url;a.download='ms2109-logs.txt';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+setInterval(()=>{if(document.getElementById('auto').checked)refresh()},2000);refresh();
+</script></html>

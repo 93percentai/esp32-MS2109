@@ -13,6 +13,8 @@ Changes in `uvc_bulk.c`, `uvc_host.c`, and `private_include/`:
   Do not strip a second header on SOF fallthrough; do not scan arbitrary JPEG bytes.
 - Recheck streaming under the driver lock after acquiring a free frame. Return
   that frame if pause won the race; guard NULL before resetting an existing frame.
+- Log enumerated device VID/PID, bus speed and configuration length through
+  ESP logging so browser diagnostics include them.
 - Bound diagnostic byte reads and MJPEG SOI reads for short transfers.
 
 The header-boundary quirk and pause race were identified by

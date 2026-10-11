@@ -19,6 +19,7 @@
 #include "lwip/inet.h"
 #include "wifi_mgr.h"
 #include "form_codec.h"
+#include "app_logs.h"
 
 static const char *TAG = "provisioning";
 
@@ -134,7 +135,7 @@ static esp_err_t root_get_handler(httpd_req_t *req)
         "<input name=\"pass\" id=\"pass\" type=\"password\" maxlength=\"63\" "
         "placeholder=\"leave blank for open networks\">"
         "<button type=\"submit\" id=\"go\"%s>Test &amp; Save</button>"
-        "</form>"
+        "</form><p><a href=\"/logs\">Device logs</a></p>"
         "<p style=\"margin-top:1.25rem\">Portal: http://%d.%d.%d.%d</p>"
         "<script>document.getElementById('f').onsubmit=function(){"
         "document.getElementById('go').disabled=true;document.getElementById('go').textContent='Testing…';};"
@@ -316,6 +317,12 @@ static esp_err_t start_httpd(void)
     };
     httpd_register_uri_handler(s_httpd, &root);
     httpd_register_uri_handler(s_httpd, &connect);
+    esp_err_t logs_err = app_logs_register(s_httpd);
+    if (logs_err != ESP_OK) {
+        httpd_stop(s_httpd);
+        s_httpd = NULL;
+        return logs_err;
+    }
     httpd_register_err_handler(s_httpd, HTTPD_404_NOT_FOUND, http_404_handler);
     return ESP_OK;
 }

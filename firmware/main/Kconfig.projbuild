@@ -1,4 +1,8 @@
 menu "MS2109 wireless display"
+    config CAPTURE_LOG_KB
+        int "Recent browser log buffer (KiB)"
+        default 16
+        range 4 64
     config CAPTURE_WIDTH
         int "UVC capture width"
         default 640
