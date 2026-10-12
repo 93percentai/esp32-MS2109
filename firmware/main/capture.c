@@ -1,4 +1,4 @@
-#include "sdkconfig.h"
+#include "capture_config.h"
 #include "capture.h"
 #include <stdatomic.h>
 #include <stdlib.h>
@@ -87,8 +87,8 @@ static void capture_task(void *arg)
     const uvc_host_stream_config_t config = {
         .event_cb = stream_event, .frame_cb = frame_cb,
         .usb = {.vid = CONFIG_CAPTURE_VID, .pid = CONFIG_CAPTURE_PID},
-        .vs_format = {.h_res = CONFIG_CAPTURE_WIDTH, .v_res = CONFIG_CAPTURE_HEIGHT,
-                      .fps = CONFIG_CAPTURE_FPS, .format = UVC_VS_FORMAT_MJPEG},
+        .vs_format = {.h_res = CAPTURE_WIDTH, .v_res = CAPTURE_HEIGHT,
+                      .fps = CAPTURE_FPS, .format = UVC_VS_FORMAT_MJPEG},
         .advanced = {.number_of_frame_buffers = 3, .frame_size = VIDEO_MAX_BYTES,
             .frame_heap_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT,
             .number_of_urbs = 3, .urb_size = 16384},
@@ -119,6 +119,13 @@ static void capture_task(void *arg)
         while (err == ESP_OK && !atomic_load(&s_disconnected)) {
             const uvc_host_frame_t *frame;
             if (xQueueReceive(s_frames, &frame, pdMS_TO_TICKS(500)) == pdPASS) {
+                /* Decode the newest queued frame; return stale retained buffers promptly. */
+                const uvc_host_frame_t *newer;
+                while (xQueueReceive(s_frames, &newer, 0) == pdPASS) {
+                    ESP_ERROR_CHECK(uvc_host_frame_return(stream, (uvc_host_frame_t *)frame));
+                    video_drop(false);
+                    frame = newer;
+                }
                 last_received = esp_timer_get_time();
                 size_t jpeg_size = frame->data_len <= VIDEO_MAX_BYTES ?
                     jpeg_frame_size(frame->data, frame->data_len) : 0;

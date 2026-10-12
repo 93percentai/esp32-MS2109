@@ -10,9 +10,25 @@ bool frame_scale_rgb565(const uint16_t *src, size_t src_pixels, unsigned width,
     if (fh > dh) { fh = dh; fw = (uint64_t)width * dh / height; }
     if (!fw || !fh) return false;
     unsigned x0 = (dw - fw) / 2, y0 = (dh - fh) / 2;
-    for (unsigned y = 0; y < fh; ++y)
-        for (unsigned x = 0; x < fw; ++x)
-            dst[(size_t)(y + y0) * dw + x + x0] =
-                src[(size_t)(y * (uint64_t)height / fh) * stride + x * (uint64_t)width / fw];
+    /* Bresenham-style coordinates give floor(x * width / fw) without a
+     * 64-bit divide for every LCD pixel, keeping capture buffers available. */
+    unsigned x_step = width / fw, x_rem = width % fw;
+    unsigned y_step = height / fh, y_rem = height % fh, sy = 0;
+    uint64_t y_error = 0;
+    for (unsigned y = 0; y < fh; ++y) {
+        const uint16_t *row = src + (size_t)sy * stride;
+        uint16_t *out = dst + (size_t)(y + y0) * dw + x0;
+        unsigned sx = 0;
+        uint64_t x_error = 0;
+        for (unsigned x = 0; x < fw; ++x) {
+            out[x] = row[sx];
+            sx += x_step;
+            x_error += x_rem;
+            if (x_error >= fw) { x_error -= fw; ++sx; }
+        }
+        sy += y_step;
+        y_error += y_rem;
+        if (y_error >= fh) { y_error -= fh; ++sy; }
+    }
     return true;
 }

@@ -3,16 +3,29 @@ menu "MS2109 wireless display"
         int "Recent browser log buffer (KiB)"
         default 16
         range 4 64
+    choice CAPTURE_PROFILE
+        prompt "Capture profile"
+        default CAPTURE_PROFILE_HD
+        config CAPTURE_PROFILE_HD
+            bool "1280x720 MJPEG at 30 fps (widescreen HDMI)"
+        config CAPTURE_PROFILE_VGA
+            bool "640x480 MJPEG at 30 fps (4:3 source)"
+        config CAPTURE_PROFILE_CUSTOM
+            bool "Custom advertised mode"
+    endchoice
     config CAPTURE_WIDTH
         int "UVC capture width"
+        depends on CAPTURE_PROFILE_CUSTOM
         default 640
         range 160 1280
     config CAPTURE_HEIGHT
         int "UVC capture height"
+        depends on CAPTURE_PROFILE_CUSTOM
         default 480
         range 120 720
     config CAPTURE_FPS
         int "Capture FPS (0 uses card default)"
+        depends on CAPTURE_PROFILE_CUSTOM
         default 0
         range 0 60
     config CAPTURE_FRAME_KB

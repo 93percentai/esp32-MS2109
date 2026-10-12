@@ -125,6 +125,41 @@ void bulk_transfer_callback(usb_transfer_t *transfer)
     size_t payload_data_len      = transfer->actual_num_bytes;
     bool header_already_removed = false;
 
+    /* ZLP terminates a bulk payload, never a malformed UVC header/frame. */
+    if (payload_data_len == 0) {
+        if (uvc_stream->single_thread.next_bulk_packet == UVC_STREAM_BULK_PACKET_DATA)
+            uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_EOF;
+        goto resubmit;
+    }
+
+    /* MS2109 puts another UVC header at each 16KiB transfer boundary. Handle
+     * both continuation and final payloads, even when short/ZLP packets precede
+     * them. FID changes can recover a missing EOF without mixing two JPEGs. */
+    size_t card_header = uvc_stream->constant.ms2109_headers ?
+        ms2109_payload_header(payload, payload_data_len) : 0;
+    if (card_header) {
+        const uvc_payload_header_t *header = (const uvc_payload_header_t *)payload;
+        if (uvc_stream->single_thread.next_bulk_packet != UVC_STREAM_BULK_PACKET_SOF &&
+                uvc_stream->single_thread.current_frame_id != header->bmHeaderInfo.frame_id) {
+            bulk_complete_frame(uvc_stream);
+            uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_SOF;
+        }
+        if (uvc_stream->single_thread.next_bulk_packet == UVC_STREAM_BULK_PACKET_SOF) {
+            if (payload_data_len == card_header) goto resubmit;
+        } else {
+            uvc_stream->single_thread.skip_current_frame |= header->bmHeaderInfo.error;
+            bulk_add_frame_data(uvc_stream, payload + card_header, payload_data_len - card_header);
+            if (header->bmHeaderInfo.end_of_frame) {
+                bulk_complete_frame(uvc_stream);
+                uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_SOF;
+            } else {
+                uvc_stream->single_thread.next_bulk_packet = transfer->actual_num_bytes < transfer->data_buffer_size ?
+                    UVC_STREAM_BULK_PACKET_EOF : UVC_STREAM_BULK_PACKET_DATA;
+            }
+            goto resubmit;
+        }
+    }
+
     // Note for developers:
     // The order of SoF, Data, and EoF handling is intentional and represents a workaround for detecting EoF in the Bulk stream.
     // Normally, a complete Sample transfer includes two short packets: one marking the last data packet and another with the EoF header.
@@ -209,17 +244,15 @@ skip_sof:
         __attribute__((fallthrough));  // Fall through! There can be data after SoF!
     }
     case UVC_STREAM_BULK_PACKET_DATA: {
-        if (uvc_stream->constant.ms2109_headers && !header_already_removed) {
-            size_t header_size = ms2109_continuation_header(payload_data, payload_data_len,
-                uvc_stream->single_thread.current_frame_id);
-            payload_data += header_size;
-            payload_data_len -= header_size;
-        }
         // Add received data to frame buffer
         bulk_add_frame_data(uvc_stream, payload_data, payload_data_len);
 
-        // We got short packet in data section, this packet is EoF
-        if (transfer->data_buffer_size > transfer->actual_num_bytes) {
+        if (card_header && header_already_removed &&
+                ((const uvc_payload_header_t *)payload)->bmHeaderInfo.end_of_frame) {
+            bulk_complete_frame(uvc_stream);
+            uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_SOF;
+        // A short transfer ends a payload; EOF is determined from its header.
+        } else if (transfer->data_buffer_size > transfer->actual_num_bytes) {
             uvc_stream->single_thread.next_bulk_packet = UVC_STREAM_BULK_PACKET_EOF;
         }
         break;
@@ -259,6 +292,7 @@ skip_sof:
     default: abort();
     }
 
+resubmit:
     if (UVC_ATOMIC_LOAD(uvc_stream->dynamic.streaming)) {
         usb_host_transfer_submit(transfer); // Restart the transfer
     }

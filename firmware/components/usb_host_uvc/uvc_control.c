@@ -165,8 +165,22 @@ esp_err_t uvc_host_stream_control_probe(uvc_host_stream_hdl_t stream_hdl, uvc_ho
         memcpy(requested_format, &default_format, sizeof(uvc_host_stream_format_t));
     }
 
-    uvc_control_probe_set(stream_hdl, &vs_result, requested_format); // Set the requested frame format
-    ret = uvc_control_probe_get(stream_hdl, &vs_result, requested_format); // Get back the format
+    const uvc_host_stream_format_t requested = *requested_format;
+    ESP_RETURN_ON_ERROR(uvc_control_probe_set(stream_hdl, &vs_result, requested_format),
+                        TAG, "Could not set requested mode");
+    ret = uvc_control_probe_get(stream_hdl, &vs_result, requested_format);
+    if (ret == ESP_OK && requested.format != UVC_VS_FORMAT_DEFAULT &&
+            (requested.h_res != requested_format->h_res || requested.v_res != requested_format->v_res ||
+             requested.format != requested_format->format ||
+             (requested.fps != 0 && !FLOAT_EQUAL(requested.fps, requested_format->fps)))) {
+        ESP_LOGW(TAG, "Camera rejected mode: requested %ux%u %.1f fps; got %ux%u %.1f fps",
+                 requested.h_res, requested.v_res, requested.fps,
+                 requested_format->h_res, requested_format->v_res, requested_format->fps);
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (ret == ESP_OK) ESP_LOGI(TAG, "Negotiated %ux%u %.1f fps, format=%u payload=%"PRIu32,
+        requested_format->h_res, requested_format->v_res, requested_format->fps,
+        requested_format->format, vs_result.dwMaxPayloadTransferSize);
 
     // Pass the result to user
     if (vs_result_ret) {
@@ -194,7 +208,8 @@ esp_err_t uvc_host_stream_control_commit(uvc_host_stream_hdl_t stream_hdl, const
         // It returns 'default' format and frame settings. It is ignored for now.
         // We can reuse the returned value, if we wanted to implement 'negotiate default frame format' feature.
         memcpy(&format_set, vs_format, sizeof(uvc_host_stream_format_t));
-        uvc_host_stream_control_probe(stream_hdl, &format_set, NULL);
+        ESP_RETURN_ON_ERROR(uvc_host_stream_control_probe(stream_hdl, &format_set, NULL),
+                            TAG, "Probe failed before commit");
 
         // We do this to mimic Windows driver: The Min/Max values are ignored by this driver.
         // These values can be used if we wanted to negotiate advanced parameters, such as wCompQuality to select JPEG encoding quality
@@ -214,6 +229,10 @@ esp_err_t uvc_host_stream_control_commit(uvc_host_stream_hdl_t stream_hdl, const
     ESP_LOGD(TAG, "Frame format negotiation:\n\tRequested: %dx%d@%2.1fFPS\n\tGot: %dx%d@%2.1fFPS",
              vs_format->h_res, vs_format->v_res, vs_format->fps, format_set.h_res, format_set.v_res, format_set.fps);
 
+    if (!uvc_is_vs_format_equal(&format_set, vs_format)) {
+        ESP_LOGW(TAG, "Camera changed mode before commit");
+        return ESP_ERR_NOT_SUPPORTED;
+    }
     // Commit the negotiated format
     return uvc_control_commit(stream_hdl, &vs_result, vs_format);
 }

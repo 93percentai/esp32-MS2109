@@ -7,7 +7,7 @@ the official Korvo BSP, RGB LCD/GT1151 touch, hardware JPEG and USB host driver.
 The dependency lock records the resolved managed components. `idf.py size`
 checks the configured image/partition memory budget.
 The resulting image is approximately 1.53 MB in the 6 MB application partition;
-static DIRAM use is approximately 149 KB. Runtime PSRAM allocations and real
+static DIRAM use includes the 16 KiB browser log buffer. Runtime PSRAM allocations and real
 radio/USB heap use must still be checked on the board.
 
 `sh tests/run.sh` checks form decoding/escaping, malformed and overlong values,
@@ -24,8 +24,8 @@ Wi-Fi radio behavior, color ordering, touch events or end-to-end frame rates.
 ## Physical acceptance checks
 
 1. Flash via UART USB-C. Confirm `esp32s31`, PSRAM detection and RGB LCD init in
-   the boot log. Verify the MS2109 enumerates at High Speed and advertises VGA
-   MJPEG. Save the full descriptor/mode log if enumeration or streaming fails.
+   the boot log. Verify the MS2109 enumerates at High Speed and advertises 1280×720
+   MJPEG at 30 fps. Save the full descriptor/mode log if enumeration or streaming fails.
 2. With no saved Wi-Fi, join `ESP_MS2109_SETUP` and open `192.168.4.1`. Test an
    incorrect password: setup must remain open and no new profile should persist.
    Test a correct password: wait for DHCP, save, and confirm the AP disappears.
@@ -66,3 +66,37 @@ Hardware follow-up: open the logs page before reconnecting the card; confirm
 VID/PID, High Speed, descriptor length, modes, stream start and first decoded
 frame. Download logs if any stage fails. Confirm logs refresh during streaming
 and setup, downloads preserve text, and old logs expire with an overwrite count.
+
+## Colour, resolution and bulk-frame update
+
+The supplied UART log confirms `345f:2109` enumerates at High Speed with a
+1198-byte configuration. It advertises 1280×720 MJPEG with a 333333-unit
+frame interval (30 fps). The previous stream ran 640×480 at its 60 fps default,
+then logged zero-length packets as invalid headers, frame buffer underflow and
+a ten-second capture stall. These logs contain no frame pixels or USB payload
+trace, so they do not establish every cause of visible corruption.
+
+The JPEG driver implements `JPEG_DEC_RGB_ELEMENT_ORDER_RGB` for RGB565 by
+swapping the output bytes. LVGL expects native little-endian RGB565; the LCD
+now uses the driver's `BGR` setting, which retains RGB565 channel positions and
+native byte order. Default capture now uses a 720p/30 profile; VGA/30 and custom
+profiles remain available. Probe/commit errors are propagated rather than
+accepting an unexpected resolution. The browser follows the frame aspect ratio.
+
+MS2109 bulk processing handles continuation and final headers, zero-length
+delimiters, FID changes and ERR without inserting headers into JPEG entropy or
+losing final data. The worker prefers the newest queued frame, and scaling
+avoids per-pixel 64-bit division. These changes still need physical validation.
+
+Validation: all ASan/UBSan host tests pass, including the actual vendored bulk
+callback with simulated transfers, 1000 scaler/reference comparisons and 720p
+RGB565 colour bars letterboxed to 800×450. Cross-compiled with ESP-IDF v6.1 for
+ESP32-S31 (1,527,952-byte application image; 164,992 bytes static DIRAM).
+No physical board or capture card was attached to the workspace.
+
+After flashing, check `/logs` for `Negotiated 1280x720 30.0 fps` and a first
+1280×720 decoded frame. Compare full-screen HDMI colour bars on the browser and
+LCD, including red/green/blue and the four corners. Check `/snapshot.jpg` at its
+native 1280×720 size; no cropping or repeated bands should appear. Confirm empty
+packets no longer cause invalid-header warnings. Dropped frames can still occur
+when USB input exceeds LCD/Wi-Fi throughput; measure delivered FPS on the board.

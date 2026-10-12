@@ -3,7 +3,7 @@
 <title>MS2109 wireless camera</title>
 <style>
 body{margin:0;background:#111820;color:#eef3f7;font:16px system-ui}main{max-width:1000px;margin:auto;padding:24px}
-h1{font-size:24px}img{width:100%;min-height:240px;object-fit:contain;background:#000;border-radius:8px}
+h1{font-size:24px}img{width:100%;aspect-ratio:16/9;height:auto;object-fit:contain;background:#000;border-radius:8px}
 a,button{color:#a7dcff}button{background:#253545;border:1px solid #52718a;padding:8px;border-radius:6px}pre{white-space:pre-wrap}
 </style><main><h1>MS2109 wireless camera</h1><p id="state">Connecting to the capture card…</p>
 <img id="video" alt="Live HDMI capture"><p><a href="/snapshot.jpg" target="_blank">Open snapshot</a> · <a href="/logs">Device logs</a>
@@ -21,6 +21,7 @@ async function poll(){
  try{const r=await fetch('/status',{cache:'no-store'});if(!r.ok)throw Error('status');const s=await r.json();
  const now=performance.now(),fps=(s.sequence-last)*1000/(now-lastTime);last=s.sequence;lastTime=now;
  state.textContent=s.connected&&s.age_ms>=0&&s.age_ms<3000?'Live · '+s.width+' × '+s.height+' · '+fps.toFixed(1)+' fps':'Waiting for video — check HDMI source and USB-A HS connection';
+ if(s.width&&s.height)video.style.aspectRatio=s.width+'/'+s.height;
  stats.textContent=JSON.stringify(s,null,2);
  // A stream can end cleanly during a capture outage; img.onerror is not guaranteed.
  const fresh=s.connected&&s.age_ms>=0&&s.age_ms<3000;

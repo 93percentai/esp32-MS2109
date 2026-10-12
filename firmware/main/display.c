@@ -1,4 +1,4 @@
-#include "sdkconfig.h"
+#include "capture_config.h"
 #include "display.h"
 #include <stdio.h>
 #include <string.h>
@@ -76,8 +76,8 @@ esp_err_t display_init(void)
     s_input = jpeg_alloc_decoder_mem(VIDEO_MAX_BYTES, &mem, &s_input_capacity);
     mem.buffer_direction = JPEG_DEC_ALLOC_OUTPUT_BUFFER;
     /* Hardware JPEG output is padded to MCU boundaries. Allocate worst case. */
-    size_t padded_w = (CONFIG_CAPTURE_WIDTH + 15) & ~15;
-    size_t padded_h = (CONFIG_CAPTURE_HEIGHT + 15) & ~15;
+    size_t padded_w = (CAPTURE_WIDTH + 15) & ~15;
+    size_t padded_h = (CAPTURE_HEIGHT + 15) & ~15;
     s_decoded = jpeg_alloc_decoder_mem(padded_w * padded_h * 2, &mem, &s_decode_capacity);
     for (int i = 0; i < 2; ++i) {
         s_pixels[i] = heap_caps_calloc(LCD_W * LCD_H, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
@@ -131,9 +131,10 @@ esp_err_t display_jpeg(const uint8_t *data, size_t size, unsigned width, unsigne
     if (err != ESP_OK) return err;
     /* Refuse unexpected dimensions before hardware can DMA into our buffers. */
     if (info.width != width || info.height != height || !width || !height ||
-        width > CONFIG_CAPTURE_WIDTH || height > CONFIG_CAPTURE_HEIGHT) return ESP_ERR_INVALID_SIZE;
+        width > CAPTURE_WIDTH || height > CAPTURE_HEIGHT) return ESP_ERR_INVALID_SIZE;
     jpeg_decode_cfg_t config = {.output_format = JPEG_DECODE_OUT_FORMAT_RGB565,
-        .rgb_order = JPEG_DEC_RGB_ELEMENT_ORDER_RGB, .conv_std = JPEG_YUV_RGB_CONV_STD_BT601};
+        /* RGB selects byte-swapped RGB565; LVGL needs native little-endian. */
+        .rgb_order = JPEG_DEC_RGB_ELEMENT_ORDER_BGR, .conv_std = JPEG_YUV_RGB_CONV_STD_BT601};
     uint32_t output_size;
     err = jpeg_decoder_process(s_decoder, &config, s_input, size,
                                s_decoded, s_decode_capacity, &output_size);

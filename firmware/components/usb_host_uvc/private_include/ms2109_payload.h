@@ -2,8 +2,8 @@
 #pragma once
 #include <stddef.h>
 #include <stdint.h>
-static inline size_t ms2109_continuation_header(const uint8_t *data, size_t size, uint8_t fid)
+/* At known-card 16KiB boundaries, recognize FID/EOF/ERR with PTS+SCR+EOH. */
+static inline size_t ms2109_payload_header(const uint8_t *data, size_t size)
 {
-    /* PTS + SCR + EOH, no EOF/ERR; same frame ID. Never scan JPEG entropy data. */
-    return size >= 12 && data[0] == 12 && data[1] == (uint8_t)(0x8c | (fid & 1)) ? 12 : 0;
+    return size >= 12 && data[0] == 12 && (data[1] & 0xbc) == 0x8c ? 12 : 0;
 }

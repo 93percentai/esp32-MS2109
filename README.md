@@ -64,12 +64,18 @@ In the prepared cloud workspace, first source
 
 ## Capture settings and limitations
 
-Start with **640×480 MJPEG**, using the card's advertised default frame rate.
-The driver prints its mode list and descriptors to the serial log. Change
-`MS2109 wireless display` settings with `idf.py --preview menuconfig` if your
-card does not advertise that mode. Current bounds are 1280×720. Unsupported
-modes produce a log message and retry, rather than assuming the card accepted
-them. There is no YUY2 fallback or H.264 transcoding.
+The default capture profile is **1280×720 MJPEG at 30 fps** for widescreen HDMI.
+It is advertised by the user's `345f:2109` card. The browser receives the full
+720p JPEG; the LCD shows an **800×450** image with 15-pixel top/bottom bars.
+The LCD decoder outputs native little-endian RGB565 for LVGL.
+
+Use `idf.py --preview menuconfig` → `MS2109 wireless display` → `Capture profile`
+to choose **640×480 at 30 fps** for a 4:3 source, or a custom advertised mode
+(up to 1280×720). The new profile defaults to 720p even in existing configurations;
+old custom width/height/FPS fields apply only when selecting the custom profile.
+The driver logs the advertised and negotiated modes. A camera that rejects the
+requested dimensions or rate produces an error and retry, instead of silently
+streaming another resolution. There is no YUY2 fallback or H.264 transcoding.
 
 Compressed frame buffers default to **512 KiB** each. If the card exceeds that,
 raise `Maximum compressed frame size` (up to 2 MiB) and check free PSRAM.
@@ -83,7 +89,8 @@ See the [research](docs/RESEARCH.md) and
 [driver patch notes](firmware/components/usb_host_uvc/PATCHES.md).
 
 One browser can use the continuous stream at a time. Slow clients skip frames;
-capture and the LCD do not wait for network transmission. Status and snapshot
+capture and the LCD do not wait for network transmission. The LCD worker skips
+older queued frames when it falls behind and returns those USB buffers promptly. Status and snapshot
 requests use a separate HTTP task. USB unplug/replug and a 10-second capture
 stall trigger stream cleanup/reopen. The page retries after capture outages.
 Frames older than 3 seconds are hidden/refused rather than presented as live.
@@ -120,7 +127,10 @@ idf.py --preview build size
 
 Host tests exercise malformed/overlong credentials, SSID escaping, MS2109
 payload-header boundaries and aspect-preserving RGB565 scaling with padded
-source strides. They use AddressSanitizer and UndefinedBehaviorSanitizer.
+source strides, including 720p colour bars and a scaler reference comparison.
+The actual UVC bulk callback is tested with ZLP delimiters, continuation/final
+headers, frame-ID changes, error flags and standard-camera packets.
+They use AddressSanitizer and UndefinedBehaviorSanitizer.
 They also check captive DNS packet bounds and concurrent snapshot ownership,
 including rejecting stale frames after capture disconnects. Log-ring tests
 check wrapping, oversized writes, overwrite counts and bounded snapshots.
