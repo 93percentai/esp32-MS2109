@@ -7,6 +7,7 @@
 #include "ms2109_payload.h"
 #include "dns_packet.h"
 #include "jpeg_frame.h"
+#include "ppa_fit.h"
 
 static void test_forms(void)
 {
@@ -106,6 +107,38 @@ static void test_scale_reference(void)
     free(hd); free(lcd);
 }
 
+static void test_native_geometry_and_jpeg(void)
+{
+    ppa_fit_t fit;
+    assert(ppa_fit(1280,720,800,480,&fit));
+    assert(fit.scale16==10 && fit.width==800 && fit.height==450 && fit.x==0 && fit.y==15);
+    assert(ppa_fit(640,480,800,480,&fit));
+    assert(fit.scale16==16 && fit.width==640 && fit.height==480 && fit.x==80 && fit.y==0);
+    assert(ppa_fit(800,600,800,480,&fit));
+    assert(fit.scale16==12 && fit.width==600 && fit.height==450);
+    assert(!ppa_fit(0,720,800,480,&fit));
+    assert(!ppa_fit(16000,16000,800,480,&fit));
+    assert(!ppa_fit(1,1,UINT32_MAX,UINT32_MAX,&fit));
+    assert(!ppa_fit(640,480,800,480,NULL));
+    for (unsigned w=160; w<=1280; w+=17)
+        for (unsigned h=120; h<=720; h+=13) {
+            assert(ppa_fit(w,h,800,480,&fit));
+            assert(fit.x+fit.width<=800 && fit.y+fit.height<=480 && fit.scale16>0);
+            assert(fit.width==w*fit.scale16/16 && fit.height==h*fit.scale16/16);
+        }
+    uint8_t jpeg[] = {0xff,0xd8, 0xff,0xe0,0,4,0,0,
+        0xff,0xc0,0,17,8,2,0xd0,5,0,3,1,0x22,0,2,0x11,1,3,0x11,1, 0xff,0xd9};
+    unsigned w,h;
+    assert(jpeg_frame_dimensions(jpeg,sizeof(jpeg),&w,&h) && w==1280 && h==720);
+    for(size_t n=0;n<27;++n) assert(!jpeg_frame_dimensions(jpeg,n,&w,&h));
+    jpeg[9]=0xc2; assert(!jpeg_frame_dimensions(jpeg,sizeof(jpeg),&w,&h));
+    jpeg[9]=0xda; assert(!jpeg_frame_dimensions(jpeg,sizeof(jpeg),&w,&h));
+    jpeg[9]=0xc0; jpeg[11]=1; assert(!jpeg_frame_dimensions(jpeg,sizeof(jpeg),&w,&h));
+    jpeg[11]=17; jpeg[17]=4; assert(!jpeg_frame_dimensions(jpeg,sizeof(jpeg),&w,&h));
+    jpeg[17]=3; jpeg[12]=12; assert(!jpeg_frame_dimensions(jpeg,sizeof(jpeg),&w,&h));
+    assert(!jpeg_frame_dimensions(NULL,0,&w,&h));
+}
+
 static void test_dns(void)
 {
     uint8_t query[32] = {0x12,0x34,1,0,0,1,0,0,0,0,0,0,1,'a',0,0,1,0,1};
@@ -134,6 +167,6 @@ int main(void)
     assert(!jpeg_frame_size(NULL, 0));
     jpeg[0] = 0;
     assert(!jpeg_frame_size(jpeg, sizeof(jpeg)));
-    test_forms(); test_bulk_headers(); test_scale(); test_scale_reference(); test_dns();
+    test_forms(); test_bulk_headers(); test_scale(); test_scale_reference(); test_native_geometry_and_jpeg(); test_dns();
     puts("PASS: portal decoding/escaping, MS2109 boundary headers, RGB565 scaling, captive DNS bounds");
 }

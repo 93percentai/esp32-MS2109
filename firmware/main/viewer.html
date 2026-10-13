@@ -12,20 +12,24 @@ a,button{color:#a7dcff}button{background:#253545;border:1px solid #52718a;paddin
 One browser can view the continuous stream at a time.</p></main>
 <script>
 const video=document.getElementById('video'),state=document.getElementById('state'),stats=document.getElementById('stats');
-let retry,last=0,lastTime=performance.now(),awaitingRecovery=false;
-function connect(){clearTimeout(retry);video.src='http://'+location.hostname+':81/stream?t='+Date.now()}
-video.onerror=()=>{retry=setTimeout(connect,2000)};
+let retry,connectAt=0,last=0,lastLcd=0,lastStream=0,lastTime=performance.now(),awaitingRecovery=false;
+function connect(){clearTimeout(retry);connectAt=performance.now();video.src='http://'+location.hostname+':81/stream?t='+Date.now()}
+video.onerror=()=>{retry=setTimeout(connect,250)};
 document.getElementById('restart').onclick=connect;
 document.getElementById('details').onclick=e=>{stats.hidden=!stats.hidden;e.target.textContent=stats.hidden?'Show details':'Hide details'};
 async function poll(){
  try{const r=await fetch('/status',{cache:'no-store'});if(!r.ok)throw Error('status');const s=await r.json();
- const now=performance.now(),fps=(s.sequence-last)*1000/(now-lastTime);last=s.sequence;lastTime=now;
- state.textContent=s.connected&&s.age_ms>=0&&s.age_ms<3000?'Live · '+s.width+' × '+s.height+' · '+fps.toFixed(1)+' fps':'Waiting for video — check HDMI source and USB-A HS connection';
+ const now=performance.now(),dt=now-lastTime,fps=(s.sequence-last)*1000/dt;
+ const lcdFps=(s.display_frames-lastLcd)*1000/dt,streamFps=(s.stream_frames-lastStream)*1000/dt;
+ last=s.sequence;lastLcd=s.display_frames;lastStream=s.stream_frames;lastTime=now;
+ state.textContent=s.connected&&s.age_ms>=0&&s.age_ms<3000?'Live · '+s.width+' × '+s.height+' · capture '+fps.toFixed(1)+' fps · LCD '+lcdFps.toFixed(1)+' fps · sending '+streamFps.toFixed(1)+' fps':'Waiting for video — check HDMI source and USB-A HS connection';
  if(s.width&&s.height)video.style.aspectRatio=s.width+'/'+s.height;
  stats.textContent=JSON.stringify(s,null,2);
  // A stream can end cleanly during a capture outage; img.onerror is not guaranteed.
  const fresh=s.connected&&s.age_ms>=0&&s.age_ms<3000;
  if(fresh&&awaitingRecovery){connect();awaitingRecovery=false}
+ // A deadline closes a stream while capture stays fresh; img.onerror may not fire.
+ if(fresh&&!s.stream_active&&now-connectAt>1500)connect();
  if(!fresh)awaitingRecovery=true;
  }catch(e){awaitingRecovery=true;state.textContent='Device unavailable — reconnect to the same Wi-Fi network'}
  setTimeout(poll,1000);

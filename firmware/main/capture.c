@@ -129,27 +129,20 @@ static void capture_task(void *arg)
                 last_received = esp_timer_get_time();
                 size_t jpeg_size = frame->data_len <= VIDEO_MAX_BYTES ?
                     jpeg_frame_size(frame->data, frame->data_len) : 0;
-                if (jpeg_size) {
-                    int64_t start = esp_timer_get_time();
-                    esp_err_t decode = display_jpeg(frame->data, jpeg_size,
-                        frame->vs_format.h_res, frame->vs_format.v_res);
-                    video_set_decode_time(esp_timer_get_time() - start);
-                    if (decode != ESP_OK) {
-                        video_drop(true);
-                        if (++failures == 1 || failures % 100 == 0)
-                            ESP_LOGW(TAG, "JPEG decode failed: %s (%u failures)", esp_err_to_name(decode), failures);
-                    } else {
-                        if (first_frame) {
-                            ESP_LOGI(TAG, "First decoded frame: %ux%u, %u JPEG bytes",
-                                frame->vs_format.h_res, frame->vs_format.v_res, (unsigned)jpeg_size);
-                            first_frame = false;
-                        }
-                        video_publish(frame->data, jpeg_size, frame->vs_format.h_res, frame->vs_format.v_res);
+                unsigned width = 0, height = 0;
+                if (jpeg_size && jpeg_frame_dimensions(frame->data, jpeg_size, &width, &height) &&
+                        width == frame->vs_format.h_res && height == frame->vs_format.v_res) {
+                    /* Browser publication and returning USB buffers never wait for LCD DMA/LVGL. */
+                    video_publish(frame->data, jpeg_size, width, height);
+                    display_notify();
+                    if (first_frame) {
+                        ESP_LOGI(TAG, "First captured frame: %ux%u, %u JPEG bytes", width, height, (unsigned)jpeg_size);
+                        first_frame = false;
                     }
                 } else {
                     video_drop(true);
                     if (++failures == 1 || failures % 100 == 0)
-                        ESP_LOGW(TAG, "Invalid JPEG frame: %u bytes (%u failures)", (unsigned)frame->data_len, failures);
+                        ESP_LOGW(TAG, "Invalid JPEG frame/header: %u bytes (%u failures)", (unsigned)frame->data_len, failures);
                 }
                 ESP_ERROR_CHECK(uvc_host_frame_return(stream, (uvc_host_frame_t *)frame));
             }

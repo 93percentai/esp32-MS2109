@@ -6,7 +6,7 @@ The implementation was cross-compiled with ESP-IDF v6.1 for `esp32s31`, includin
 the official Korvo BSP, RGB LCD/GT1151 touch, hardware JPEG and USB host driver.
 The dependency lock records the resolved managed components. `idf.py size`
 checks the configured image/partition memory budget.
-The resulting image is approximately 1.53 MB in the 6 MB application partition;
+The resulting image is approximately 1.56 MB in the 6 MB application partition;
 static DIRAM use includes the 16 KiB browser log buffer. Runtime PSRAM allocations and real
 radio/USB heap use must still be checked on the board.
 
@@ -100,3 +100,55 @@ LCD, including red/green/blue and the four corners. Check `/snapshot.jpg` at its
 native 1280×720 size; no cropping or repeated bands should appear. Confirm empty
 packets no longer cause invalid-header warnings. Dropped frames can still occur
 when USB input exceeds LCD/Wi-Fi throughput; measure delivered FPS on the board.
+
+## Native S31 acceleration and latency update
+
+The S31 SDK declares hardware JPEG decode/encode, PPA and DMA2D support.
+The firmware already used hardware JPEG decode, but CPU scaling and LCD
+submission blocked publication of JPEGs for the browser and held UVC buffers.
+The new capture worker only checks bounded baseline JPEG SOF dimensions/EOI,
+publishes the compressed frame and returns the USB buffer. An independent
+notification-driven LCD worker copies the newest publication with its metadata,
+then performs hardware JPEG DMA decode and PPA scale. LVGL's PPA backend
+composes the full-screen RGB565 image; touch/debug labels remain available.
+
+PPA output buffers are 64-byte cache-aligned. Black borders are written back
+once before DMA, and the driver handles transfer cache maintenance. Uniform
+scale is quantized to the documented 1/16 step: default 1280×720 -> 800×450 is
+exact. RGB565 byte order remains native little-endian. No CPU scaling loop is
+linked into the firmware. LVGL 9.5's PPA dependency/check uses P4-specific
+assumptions: the project CMake adds the PPA/esp_mm dependencies and provides
+its L2-named alignment check with the S31 L1 data-cache line size, only for that
+component. This does not assume S31 has an L2 cache.
+
+Streaming uses a larger TCP send window, TCP_NODELAY, and an absolute per-frame
+send deadline (250 ms by default), shared across partial writes and HTTP chunks.
+Failed sends close the stream and browser recovery observes `stream_active`.
+Frames still queued inside TCP/browser buffers are not covered by the deadline.
+Compressed network frames are no longer gated on the LCD's hardware decode;
+LCD decode failures have a separate counter and do not stop publication.
+
+ASan/UBSan tests cover bounded JPEG SOF parsing, PPA geometry/quantization,
+metadata/frame pairing under concurrent publication, publication and stream
+progress while the LCD consumer is idle, and socket data integrity/partial
+writes/deadline expiration with a stalled receiver. Viewer checks exercise
+aspect ratio, per-consumer counters and recovery after a deadline closes the
+stream. These checks do not execute physical PPA/JPEG/LCD hardware.
+
+Physical checks after flashing: confirm the native-backend startup log and
+`display_backend=native-jpeg-ppa` in `/status`; compare capture/LCD/network rates
+and the five-second stage timing logs. Use a changing HDMI timestamp or LED
+and record actual LCD/browser latency, first separately and then simultaneously.
+Verify colour bars, preserved aspect ratio, touch/debug overlays and stable
+long-running DMA/cache behavior. Throttle a client: it must reconnect rather
+than accumulate seconds of video, while capture and LCD updates continue.
+No physical frame rate or latency improvement is claimed from compilation.
+
+Native-update checks passed with pinned ESP-IDF v6.1 for `esp32s31`: final
+application size 1,556,032 bytes in the 6 MiB partition, static DIRAM 165,104
+bytes. Symbol inspection confirms `jpeg_decoder_process`,
+`ppa_do_scale_rotate_mirror`, `lv_draw_ppa_init` and `lv_draw_ppa_img` are linked,
+with no `frame_scale_rgb565` symbol. A fresh, separate SDK configuration selects
+the documented PPA, 64-byte alignment, 64 KiB TCP send window and 250 ms send
+budget from defaults. The full PPA compile reported one upstream LVGL
+unused-variable warning; application checks and the final build pass.

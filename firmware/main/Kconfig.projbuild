@@ -3,6 +3,13 @@ menu "MS2109 wireless display"
         int "Recent browser log buffer (KiB)"
         default 16
         range 4 64
+    config CAPTURE_STREAM_SEND_MS
+        int "Maximum MJPEG frame send time (ms)"
+        default 250
+        range 100 2000
+        help
+            Disconnect stalled stream clients rather than accumulating old video.
+            Use a lower capture resolution if the link cannot sustain this budget.
     choice CAPTURE_PROFILE
         prompt "Capture profile"
         default CAPTURE_PROFILE_HD

@@ -3,7 +3,8 @@
 ESP-IDF firmware that receives HDMI video from an MS2109 USB capture card,
 shows it on the Korvo-1's **800×480 LCD subboard**, and serves a live MJPEG page
 over the local Wi-Fi network. The USB card supplies JPEG frames; the S31 JPEG
-engine decodes them into RGB565 for the LCD. The image is letterboxed without
+engine decodes them into RGB565; PPA scales and composes the LCD image with
+DMA2D transfers. The image is letterboxed without
 changing aspect ratio. Audio capture is not implemented.
 
 Implemented and cross-compiled for **ESP32-S31**, not ESP32-S3. Cloud checks
@@ -53,6 +54,13 @@ port is reserved for the capture card. Default configuration selects the
 board's 16 MB flash and 250 MHz PSRAM configuration from the factory example.
 The application partition is 6 MB; no OTA updater is included.
 
+For an existing checkout, enable `CONFIG_LV_USE_PPA=y`,
+`CONFIG_LV_USE_PPA_IMG=y`, `CONFIG_LV_DRAW_BUF_ALIGN=64` and
+`CONFIG_LV_PPA_BURST_LENGTH=64` in `firmware/sdkconfig`. Also set
+`CONFIG_LWIP_TCP_SND_BUF_DEFAULT=65534` and `CONFIG_LWIP_TCP_WND_DEFAULT=32768`
+for the streaming transport. The build checks the required PPA settings, so an
+old configuration cannot silently retain CPU rendering.
+
 For an existing checkout, set `CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=4096`
 in `firmware/sdkconfig` (or use `menuconfig` → USB-OTG → largest default-endpoint
 transfer size). Defaults only apply when creating a configuration. The build
@@ -90,10 +98,27 @@ See the [research](docs/RESEARCH.md) and
 
 One browser can use the continuous stream at a time. Slow clients skip frames;
 capture and the LCD do not wait for network transmission. The LCD worker skips
-older queued frames when it falls behind and returns those USB buffers promptly. Status and snapshot
+older publications when it falls behind. USB capture publishes after bounded JPEG
+header/EOI validation and promptly returns its buffers; it never waits for LCD
+decoding, PPA or LVGL. The LCD owns its JPEG copy until DMA finishes. Status and snapshot
 requests use a separate HTTP task. USB unplug/replug and a 10-second capture
 stall trigger stream cleanup/reopen. The page retries after capture outages.
 Frames older than 3 seconds are hidden/refused rather than presented as live.
+
+Each MJPEG frame has a **250 ms send budget**, shared across all partial socket
+writes and HTTP chunks. A stalled client is closed and the viewer reconnects;
+queued TCP bytes and browser buffering are outside that application budget.
+If `stream_aborts` rises on a weak link, use the VGA capture profile or change
+`Maximum MJPEG frame send time` in menuconfig. Wi-Fi power saving is disabled.
+The TCP send window defaults to about 64 KiB instead of 5.6 KiB.
+
+`/status`, LCD touch details and `/logs` distinguish capture rate from LCD
+submission and network-send rates. Timing fields are `jpeg_decode_us`,
+`ppa_scale_us`, `present_us` (LVGL submission/lock), `display_age_us` (publication
+to LCD submission), and `stream_send_us` (socket enqueue time). They do not
+measure HDMI-to-photon or browser rendering latency. Default 720p hardware
+scaling is exactly 0.625 on both axes; custom modes use the same quantized
+1/16-step PPA factor on both axes and may have slightly larger black borders.
 
 ## HTTP endpoints
 

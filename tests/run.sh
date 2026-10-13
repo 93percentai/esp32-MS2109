@@ -22,3 +22,7 @@ ${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
     tests/test_uvc_bulk.c firmware/components/usb_host_uvc/uvc_bulk.c \
     -o work/tests/test_uvc_bulk
 ./work/tests/test_uvc_bulk
+${CC:-cc} -D_POSIX_C_SOURCE=200809L -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -pthread \
+    -Itests/support/deadline -Ifirmware/main tests/test_deadline_send.c firmware/main/deadline_send.c \
+    -o work/tests/test_deadline_send
+./work/tests/test_deadline_send

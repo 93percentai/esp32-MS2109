@@ -3,6 +3,6 @@
 #include <stdint.h>
 #include "esp_err.h"
 esp_err_t display_init(void);
-/* Called only by the capture worker. Decode and scale outside the LVGL lock. */
-esp_err_t display_jpeg(const uint8_t *data, size_t size, unsigned width, unsigned height);
+/* Wake the independent LCD worker; it copies the newest published JPEG. */
+void display_notify(void);
 void network_request_setup(void);
