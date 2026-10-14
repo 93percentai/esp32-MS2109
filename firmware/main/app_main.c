@@ -14,6 +14,7 @@
 #include "web_server.h"
 #include "wifi_mgr.h"
 #include "app_logs.h"
+#include "audio.h"
 
 static bridge_config_t s_config;
 static atomic_bool s_setup_requested;
@@ -56,5 +57,7 @@ void app_main(void)
     ESP_ERROR_CHECK(provisioning_init());
     ESP_ERROR_CHECK(display_init());
     ESP_ERROR_CHECK(capture_init());
+    err=audio_init();
+    if(err!=ESP_OK) ESP_LOGW("audio", "Audio initialization: %s; video continues",esp_err_to_name(err));
     if (xTaskCreate(network_task, "network", 8192, NULL, 5, NULL) != pdPASS) abort();
 }

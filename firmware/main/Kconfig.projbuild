@@ -1,4 +1,15 @@
 menu "MS2109 wireless display"
+    config CAPTURE_AUDIO
+        bool "Capture MS2109 HDMI audio"
+        default y
+    config CAPTURE_AUDIO_SPEAKER
+        bool "Play HDMI audio through the Korvo speaker codec"
+        depends on CAPTURE_AUDIO
+        default y
+    config CAPTURE_AUDIO_VOLUME
+        int "Initial device speaker volume (%)"
+        default 35
+        range 0 100
     config CAPTURE_LOG_KB
         int "Recent browser log buffer (KiB)"
         default 16

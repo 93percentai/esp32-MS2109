@@ -236,6 +236,34 @@ dependencies:
     - esp32h4
     - linux
     version: 1.6.0
+  espressif/usb_host_uac:
+    component_hash: 02f7e669b4dae033347e4523acaed4b8c402290a887878d396811c4bee47cc46
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.5.*
+    - name: idf
+      require: private
+      version: '>=5.0'
+    - name: espressif/usb
+      registry_url: https://components.espressif.com
+      require: public
+      rules:
+      - if: idf_version >=6.0
+      - if: target not in ["linux"]
+      version: ^1.0.0
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    targets:
+    - esp32s2
+    - esp32s3
+    - esp32s31
+    - esp32p4
+    - esp32h4
+    - linux
+    version: 1.5.0
   idf:
     source:
       type: idf
@@ -256,8 +284,9 @@ dependencies:
 direct_dependencies:
 - espressif/esp32_s31_korvo_1
 - espressif/usb
+- espressif/usb_host_uac
 - idf
 - lvgl/lvgl
-manifest_hash: 4dadb1a7f7722d50a829fb7abf59f1c7b2764d951921af92d3306446946e442b
+manifest_hash: e46e66a67ab7040f7910a9d3ecb727e911c992756d52b3a55121e877acccf0a8
 target: esp32s31
 version: 3.0.0

@@ -8,8 +8,12 @@ a,button{color:#a7dcff}button{background:#253545;border:1px solid #52718a;paddin
 </style><main><h1>MS2109 wireless camera</h1><p id="state">Connecting to the capture card…</p>
 <img id="video" alt="Live HDMI capture"><p><a href="/snapshot.jpg" target="_blank">Open snapshot</a> · <a href="/logs">Device logs</a>
  · <button id="details">Show details</button> · <button id="restart">Reconnect video</button></p>
+<p><button id="sound">Enable sound</button> <label>Browser volume <input id="browser-volume" type="range" min="0" max="100" value="50"></label></p>
+<p><label>Device speaker volume <input id="speaker-volume" type="range" min="0" max="100" value="35"></label>
+<label><input id="speaker-mute" type="checkbox">Mute device speaker</label></p><p id="audio-state" role="status">Checking HDMI audio…</p>
 <pre id="stats" hidden></pre><p>Tap the ESP32 screen to toggle image details. Hold it for 2 seconds to open Wi-Fi setup.
-One browser can view the continuous stream at a time.</p></main>
+One browser can view video and one can listen to audio at a time. Browser sound starts after clicking Enable sound.</p></main>
+<script src="/audio-player.js"></script>
 <script>
 const video=document.getElementById('video'),state=document.getElementById('state'),stats=document.getElementById('stats');
 let retry,connectAt=0,last=0,lastLcd=0,lastStream=0,lastTime=performance.now(),awaitingRecovery=false;

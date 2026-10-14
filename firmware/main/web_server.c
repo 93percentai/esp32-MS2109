@@ -12,6 +12,7 @@
 #include "video_store.h"
 #include "wifi_mgr.h"
 #include "app_logs.h"
+#include "audio_http.h"
 #include "deadline_send.h"
 #include "lwip/sockets.h"
 #include "lwip/tcp.h"
@@ -131,6 +132,7 @@ static esp_err_t stream(httpd_req_t *req)
 void web_server_stop(void)
 {
     atomic_store(&s_stop_stream, true);
+    audio_http_stop();
     /* stream loop exits on lost STA IP; send timeout bounds teardown. */
     if (s_stream) { httpd_stop(s_stream); s_stream = NULL; }
     if (s_web) { httpd_stop(s_web); s_web = NULL; }
@@ -167,6 +169,7 @@ esp_err_t web_server_start(void)
     if (err != ESP_OK) goto fail;
     const httpd_uri_t route = {.uri = "/stream", .method = HTTP_GET, .handler = stream};
     err = httpd_register_uri_handler(s_stream, &route);
+    if (err == ESP_OK) err=audio_http_start(s_web);
     if (err == ESP_OK) return ESP_OK;
 fail:
     web_server_stop();

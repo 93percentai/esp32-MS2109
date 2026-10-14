@@ -5,7 +5,8 @@ shows it on the Korvo-1's **800×480 LCD subboard**, and serves a live MJPEG pag
 over the local Wi-Fi network. The USB card supplies JPEG frames; the S31 JPEG
 engine decodes them into RGB565; PPA scales and composes the LCD image with
 DMA2D transfers. The image is letterboxed without
-changing aspect ratio. Audio capture is not implemented.
+changing aspect ratio. HDMI audio is captured as **48 kHz stereo PCM16**,
+played through the Korvo ES8389 codec and available in the browser.
 
 Implemented and cross-compiled for **ESP32-S31**, not ESP32-S3. Cloud checks
 cannot establish USB-card, LCD, touch or radio operation on physical hardware.
@@ -23,7 +24,11 @@ See [hardware validation](docs/VALIDATION.md) for the remaining checks.
    test leaves setup available. Credentials are saved only after DHCP succeeds.
 5. Rejoin your usual Wi-Fi network and open the address shown on the LCD or
    serial log, **http://DEVICE_IP/**. The page loads video from port **81**.
-6. Tap the LCD to show/hide image details: dimensions, capture FPS, JPEG size,
+6. Click **Enable sound** for browser audio. Browser autoplay rules require this
+   click. Browser volume and device-speaker volume/mute are separate controls.
+   Attach a compatible speaker to the Korvo audio output; the board speaker
+   receives a mix of both HDMI channels. Device volume defaults to 35%.
+7. Tap the LCD to show/hide image details: dimensions, capture FPS, JPEG size,
    dropped/error frames, decode/scale time and free PSRAM. Hold for **2 seconds**
    to reopen Wi-Fi setup. If saved Wi-Fi cannot connect for 30 seconds, setup
    reopens automatically. Local capture continues while setting up Wi-Fi.
@@ -120,6 +125,35 @@ measure HDMI-to-photon or browser rendering latency. Default 720p hardware
 scaling is exactly 0.625 on both axes; custom modes use the same quantized
 1/16-step PPA factor on both axes and may have slightly larger black borders.
 
+## HDMI sound
+
+The pinned USB Audio Class driver shares the existing USB host with video.
+Known MS2109 IDs `345f:2109` and `534d:2109` are supported, using the card's
+48 kHz, two-channel, 16-bit PCM audio input. Audio is taken from HDMI;
+the board microphone is not captured. Cards without that advertised format
+remain video-only and log an audio negotiation error.
+
+USB audio capture, I2S speaker playback and browser delivery use separate
+workers. Audio is retained in six 20 ms blocks in PSRAM. Consumers take their
+own copies and skip old blocks when more than 60 ms behind. The browser
+uses Web Audio with a small playback buffer; delayed/discontinuous audio is
+flushed instead of growing a long queue. It works on the device's HTTP LAN
+page without HTTPS/AudioWorklet. Network blocks have a 100 ms send deadline.
+One audio listener is supported independently of the one video viewer.
+
+`MS2109 wireless display` menuconfig settings allow disabling audio capture or
+local speaker playback and changing the initial volume. Existing configurations
+pick up these new options automatically. Browser sound starts muted until the
+user clicks **Enable sound**. The device speaker plays automatically at its
+configured volume, even while setting up Wi-Fi. Speaker settings are runtime
+settings and reset to the configured default after reboot.
+
+Audio and MJPEG video have independent buffers; sample-accurate A/V sync is
+not guaranteed. Verify lip sync and real latency with a changing HDMI source.
+An unavailable speaker codec does not prevent browser audio or video capture.
+Use `/audio/status` and `/logs` to diagnose audio connection, dropped blocks
+and codec/I2S errors.
+
 ## HTTP endpoints
 
 | URL | Response |
@@ -129,6 +163,9 @@ scaling is exactly 0.625 on both axes; custom modes use the same quantized
 | `http://DEVICE_IP/logs.txt` | Plain-text recent application logs |
 | `http://DEVICE_IP/status` | JSON capture and Wi-Fi metrics |
 | `http://DEVICE_IP/snapshot.jpg` | Latest fresh JPEG; 503 when unavailable |
+| `http://DEVICE_IP/audio/status` | Audio connection, format, speaker settings and counters |
+| `http://DEVICE_IP/audio/control` | POST form `volume=0..100&mute=0/1` for the device speaker |
+| `http://DEVICE_IP:82/audio.pcm` | Framed PCM stream for one browser audio listener |
 | `http://DEVICE_IP:81/stream` | Multipart MJPEG stream |
 
 The logs also work during Wi-Fi setup at **http://192.168.4.1/logs**. They
@@ -157,6 +194,9 @@ The actual UVC bulk callback is tested with ZLP delimiters, continuation/final
 headers, frame-ID changes, error flags and standard-camera packets.
 They use AddressSanitizer and UndefinedBehaviorSanitizer.
 They also check captive DNS packet bounds and concurrent snapshot ownership,
-including rejecting stale frames after capture disconnects. Log-ring tests
+including rejecting stale frames after capture disconnects. Audio tests check
+PCM consumer ownership, backlog limits, reconnect generations, mono mixing and
+control validation. With Node.js installed they also check C-to-JavaScript packet
+framing, signed stereo playback, user-gesture start/stop and jitter scheduling. Log-ring tests
 check wrapping, oversized writes, overwrite counts and bounded snapshots.
 See [THIRD_PARTY.md](THIRD_PARTY.md) for reused code and licenses.

@@ -1,154 +1,252 @@
-# Validation
+# ESP32-S31 Korvo-1 + MS2109 wireless display
 
-## Automated checks
+ESP-IDF firmware that receives HDMI video from an MS2109 USB capture card,
+shows it on the Korvo-1's **800×480 LCD subboard**, and serves a live MJPEG page
+over the local Wi-Fi network. The USB card supplies JPEG frames; the S31 JPEG
+engine decodes them into RGB565; PPA scales and composes the LCD image with
+DMA2D transfers. The image is letterboxed without
+changing aspect ratio. HDMI audio is captured as **48 kHz stereo PCM16**,
+played through the Korvo ES8389 codec and available in the browser.
 
-The implementation was cross-compiled with ESP-IDF v6.1 for `esp32s31`, including
-the official Korvo BSP, RGB LCD/GT1151 touch, hardware JPEG and USB host driver.
-The dependency lock records the resolved managed components. `idf.py size`
-checks the configured image/partition memory budget.
-The resulting image is approximately 1.56 MB in the 6 MB application partition;
-static DIRAM use includes the 16 KiB browser log buffer. Runtime PSRAM allocations and real
-radio/USB heap use must still be checked on the board.
+Implemented and cross-compiled for **ESP32-S31**, not ESP32-S3. Cloud checks
+cannot establish USB-card, LCD, touch or radio operation on physical hardware.
+See [hardware validation](docs/VALIDATION.md) for the remaining checks.
 
-`sh tests/run.sh` checks form decoding/escaping, malformed and overlong values,
-32-byte SSIDs, boundary-safe MS2109 header recognition, RGB565 letterboxing,
-source-stride padding and buffer bounds under ASan/UBSan. It also checks bounded
-captive DNS replies, stale/disconnected snapshot rejection, retained consumer
-copies, and concurrent frame publication/copy using host mutexes. These tests
-passed; host mutexes do not emulate the entire FreeRTOS/USB stack.
+## Connect and use
 
-No serial board or USB capture card is attached to the cloud environment.
-Cross-compilation does not verify the video path, power, actual card descriptors,
-Wi-Fi radio behavior, color ordering, touch events or end-to-end frame rates.
+1. Attach the compatible LCD/touch subboard (ESP32-S3-LCD-EV-Board-SUB3).
+2. Power the Korvo board and connect the MS2109 to its onboard **USB 2.0 HS
+   Type-A host port**. Connect the HDMI source to the capture card.
+3. On first boot, join **ESP_MS2109_SETUP**, then open **http://192.168.4.1**
+   if the captive portal does not open automatically.
+4. Choose a scanned Wi-Fi network (or type a hidden SSID), enter its password,
+   and press **Test & Save**. Open networks accept a blank password. A failed
+   test leaves setup available. Credentials are saved only after DHCP succeeds.
+5. Rejoin your usual Wi-Fi network and open the address shown on the LCD or
+   serial log, **http://DEVICE_IP/**. The page loads video from port **81**.
+6. Click **Enable sound** for browser audio. Browser autoplay rules require this
+   click. Browser volume and device-speaker volume/mute are separate controls.
+   Attach a compatible speaker to the Korvo audio output; the board speaker
+   receives a mix of both HDMI channels. Device volume defaults to 35%.
+7. Tap the LCD to show/hide image details: dimensions, capture FPS, JPEG size,
+   dropped/error frames, decode/scale time and free PSRAM. Hold for **2 seconds**
+   to reopen Wi-Fi setup. If saved Wi-Fi cannot connect for 30 seconds, setup
+   reopens automatically. Local capture continues while setting up Wi-Fi.
 
-## Physical acceptance checks
+The Wi-Fi setup is adapted from your
+[Ethernet-via-Wi-Fi project](https://github.com/93percentai/esp32-ethernetviawifi).
+This device uses a separate setup SSID and 192.168.4.1 instead of 192.168.1.1.
+Use a phone/PC on the same LAN; client isolation can prevent access. The setup
+AP is open, as in the original project, and stops after credentials are saved.
 
-1. Flash via UART USB-C. Confirm `esp32s31`, PSRAM detection and RGB LCD init in
-   the boot log. Verify the MS2109 enumerates at High Speed and advertises 1280×720
-   MJPEG at 30 fps. Save the full descriptor/mode log if enumeration or streaming fails.
-2. With no saved Wi-Fi, join `ESP_MS2109_SETUP` and open `192.168.4.1`. Test an
-   incorrect password: setup must remain open and no new profile should persist.
-   Test a correct password: wait for DHCP, save, and confirm the AP disappears.
-3. Open the LCD's LAN address. Confirm video in the browser and on the LCD at
-   once. Test color bars, a timestamp and a changing scene; check RGB ordering,
-   aspect ratio, USB header corruption and freshness.
-4. Tap once: details show. Tap again: details hide. Hold 2 seconds: Wi-Fi setup
-   reopens and local capture continues. Short taps must not trigger setup.
-5. Reboot: saved Wi-Fi reconnects. Turn the router off for 30 seconds: setup
-   returns. Confirm setup can replace a saved profile without reflashing.
-6. Unplug/replug the capture card repeatedly. The LCD must hide stale video,
-   `/snapshot.jpg` must return 503, and video must recover after reconnection.
-   Disconnect HDMI separately; card-generated no-signal frames may continue.
-7. Slow/throttle a browser connection, then disconnect it. USB reception and
-   LCD updates must continue, `/status` must respond, and another viewer must
-   work after the first closes. Leave capture active for an hour and watch for
-   resets, memory loss, accumulating errors and stalled streams.
+## Build and flash
 
-For mismatched modes, configure a mode from the printed card list. For frame
-overflow, increase the compressed buffer cap. For corrupt JPEGs, record VID/PID
-and payload-boundary evidence before changing the driver quirk. High capture
-FPS is not a promise of equivalent Wi-Fi or LCD FPS.
+Use [ESP-IDF **v6.1**](https://github.com/espressif/esp-idf/releases/tag/v6.1)
+with S31 preview support. Tested SDK commit:
+`fff9895c82d744c7237be8847347bdd1b07c6643`. Older S3 SDKs are insufficient.
+Install the S31 tools using ESP-IDF's installer, then export its environment:
 
-## Detection and browser logs update
+```sh
+cd firmware
+idf.py --preview set-target esp32s31
+idf.py --preview build
+idf.py --preview -p /dev/ttyUSB0 flash monitor
+```
 
-Raised the USB enumeration control-transfer cap from 256 to 4096 bytes and
-added a compile-time guard for existing configurations. Added `/logs` and
-`/logs.txt` on both LAN and setup AP, retaining 16 KiB of application logs
-while preserving serial output. Host sanitizer tests cover ring wrap, oversized
-writes, overwrite accounting and snapshot bounds against a reference history.
+Use the **UART USB-C** port to flash/debug, and select the actual serial port.
+Hold BOOT and press/release RESET if download mode is needed. The USB-A host
+port is reserved for the capture card. Default configuration selects the
+board's 16 MB flash and 250 MHz PSRAM configuration from the factory example.
+The application partition is 6 MB; no OTA updater is included.
 
-Verification passed: ESP-IDF v6.1 `esp32s31` preview build and size check
-with 4096-byte control transfers and the 16 KiB log buffer; all ASan/UBSan
-host tests; JavaScript syntax and simulated log-page refresh/download/error
-handling. Application image: 1,526,872 bytes. No physical board was attached.
+For an existing checkout, enable `CONFIG_LV_USE_PPA=y`,
+`CONFIG_LV_USE_PPA_IMG=y`, `CONFIG_LV_DRAW_BUF_ALIGN=64` and
+`CONFIG_LV_PPA_BURST_LENGTH=64` in `firmware/sdkconfig`. Also set
+`CONFIG_LWIP_TCP_SND_BUF_DEFAULT=65534` and `CONFIG_LWIP_TCP_WND_DEFAULT=32768`
+for the streaming transport. The build checks the required PPA settings, so an
+old configuration cannot silently retain CPU rendering.
 
-Hardware follow-up: open the logs page before reconnecting the card; confirm
-VID/PID, High Speed, descriptor length, modes, stream start and first decoded
-frame. Download logs if any stage fails. Confirm logs refresh during streaming
-and setup, downloads preserve text, and old logs expire with an overwrite count.
+For an existing checkout, set `CONFIG_USB_HOST_CONTROL_TRANSFER_MAX_SIZE=4096`
+in `firmware/sdkconfig` (or use `menuconfig` → USB-OTG → largest default-endpoint
+transfer size). Defaults only apply when creating a configuration. The build
+rejects the old 256-byte setting: MS2109 configuration descriptors can exceed
+1 KiB and otherwise fail enumeration before the UVC driver sees the card.
 
-## Colour, resolution and bulk-frame update
+In the prepared cloud workspace, first source
+`/workspace/setup/activate-idf61.sh`. It selects the tested SDK and compiler.
 
-The supplied UART log confirms `345f:2109` enumerates at High Speed with a
-1198-byte configuration. It advertises 1280×720 MJPEG with a 333333-unit
-frame interval (30 fps). The previous stream ran 640×480 at its 60 fps default,
-then logged zero-length packets as invalid headers, frame buffer underflow and
-a ten-second capture stall. These logs contain no frame pixels or USB payload
-trace, so they do not establish every cause of visible corruption.
+## Capture settings and limitations
 
-The JPEG driver implements `JPEG_DEC_RGB_ELEMENT_ORDER_RGB` for RGB565 by
-swapping the output bytes. LVGL expects native little-endian RGB565; the LCD
-now uses the driver's `BGR` setting, which retains RGB565 channel positions and
-native byte order. Default capture now uses a 720p/30 profile; VGA/30 and custom
-profiles remain available. Probe/commit errors are propagated rather than
-accepting an unexpected resolution. The browser follows the frame aspect ratio.
+The default capture profile is **1280×720 MJPEG at 30 fps** for widescreen HDMI.
+It is advertised by the user's `345f:2109` card. The browser receives the full
+720p JPEG; the LCD shows an **800×450** image with 15-pixel top/bottom bars.
+The LCD decoder outputs native little-endian RGB565 for LVGL.
 
-MS2109 bulk processing handles continuation and final headers, zero-length
-delimiters, FID changes and ERR without inserting headers into JPEG entropy or
-losing final data. The worker prefers the newest queued frame, and scaling
-avoids per-pixel 64-bit division. These changes still need physical validation.
+Use `idf.py --preview menuconfig` → `MS2109 wireless display` → `Capture profile`
+to choose **640×480 at 30 fps** for a 4:3 source, or a custom advertised mode
+(up to 1280×720). The new profile defaults to 720p even in existing configurations;
+old custom width/height/FPS fields apply only when selecting the custom profile.
+The driver logs the advertised and negotiated modes. A camera that rejects the
+requested dimensions or rate produces an error and retry, instead of silently
+streaming another resolution. There is no YUY2 fallback or H.264 transcoding.
 
-Validation: all ASan/UBSan host tests pass, including the actual vendored bulk
-callback with simulated transfers, 1000 scaler/reference comparisons and 720p
-RGB565 colour bars letterboxed to 800×450. Cross-compiled with ESP-IDF v6.1 for
-ESP32-S31 (1,527,952-byte application image; 164,992 bytes static DIRAM).
-No physical board or capture card was attached to the workspace.
+Compressed frame buffers default to **512 KiB** each. If the card exceeds that,
+raise `Maximum compressed frame size` (up to 2 MiB) and check free PSRAM.
+USB frames, JPEG DMA buffers and LCD buffers live in PSRAM. USB transfer buffers
+use the host driver's required memory capabilities.
 
-After flashing, check `/logs` for `Negotiated 1280x720 30.0 fps` and a first
-1280×720 decoded frame. Compare full-screen HDMI colour bars on the browser and
-LCD, including red/green/blue and the four corners. Check `/snapshot.jpg` at its
-native 1280×720 size; no cropping or repeated bands should appear. Confirm empty
-packets no longer cause invalid-header warnings. Dropped frames can still occur
-when USB input exceeds LCD/Wi-Fi throughput; measure delivered FPS on the board.
+USB matching defaults to any UVC device to accommodate different card VID/PID
+values. Set VID/PID in menuconfig to restrict it. The continuation-header quirk
+is enabled only for `534d:2109` and `345f:2109`, MJPEG and 16 KiB bulk URBs.
+See the [research](docs/RESEARCH.md) and
+[driver patch notes](firmware/components/usb_host_uvc/PATCHES.md).
 
-## Native S31 acceleration and latency update
+One browser can use the continuous stream at a time. Slow clients skip frames;
+capture and the LCD do not wait for network transmission. The LCD worker skips
+older publications when it falls behind. USB capture publishes after bounded JPEG
+header/EOI validation and promptly returns its buffers; it never waits for LCD
+decoding, PPA or LVGL. The LCD owns its JPEG copy until DMA finishes. Status and snapshot
+requests use a separate HTTP task. USB unplug/replug and a 10-second capture
+stall trigger stream cleanup/reopen. The page retries after capture outages.
+Frames older than 3 seconds are hidden/refused rather than presented as live.
 
-The S31 SDK declares hardware JPEG decode/encode, PPA and DMA2D support.
-The firmware already used hardware JPEG decode, but CPU scaling and LCD
-submission blocked publication of JPEGs for the browser and held UVC buffers.
-The new capture worker only checks bounded baseline JPEG SOF dimensions/EOI,
-publishes the compressed frame and returns the USB buffer. An independent
-notification-driven LCD worker copies the newest publication with its metadata,
-then performs hardware JPEG DMA decode and PPA scale. LVGL's PPA backend
-composes the full-screen RGB565 image; touch/debug labels remain available.
+Each MJPEG frame has a **250 ms send budget**, shared across all partial socket
+writes and HTTP chunks. A stalled client is closed and the viewer reconnects;
+queued TCP bytes and browser buffering are outside that application budget.
+If `stream_aborts` rises on a weak link, use the VGA capture profile or change
+`Maximum MJPEG frame send time` in menuconfig. Wi-Fi power saving is disabled.
+The TCP send window defaults to about 64 KiB instead of 5.6 KiB.
 
-PPA output buffers are 64-byte cache-aligned. Black borders are written back
-once before DMA, and the driver handles transfer cache maintenance. Uniform
-scale is quantized to the documented 1/16 step: default 1280×720 -> 800×450 is
-exact. RGB565 byte order remains native little-endian. No CPU scaling loop is
-linked into the firmware. LVGL 9.5's PPA dependency/check uses P4-specific
-assumptions: the project CMake adds the PPA/esp_mm dependencies and provides
-its L2-named alignment check with the S31 L1 data-cache line size, only for that
-component. This does not assume S31 has an L2 cache.
+`/status`, LCD touch details and `/logs` distinguish capture rate from LCD
+submission and network-send rates. Timing fields are `jpeg_decode_us`,
+`ppa_scale_us`, `present_us` (LVGL submission/lock), `display_age_us` (publication
+to LCD submission), and `stream_send_us` (socket enqueue time). They do not
+measure HDMI-to-photon or browser rendering latency. Default 720p hardware
+scaling is exactly 0.625 on both axes; custom modes use the same quantized
+1/16-step PPA factor on both axes and may have slightly larger black borders.
 
-Streaming uses a larger TCP send window, TCP_NODELAY, and an absolute per-frame
-send deadline (250 ms by default), shared across partial writes and HTTP chunks.
-Failed sends close the stream and browser recovery observes `stream_active`.
-Frames still queued inside TCP/browser buffers are not covered by the deadline.
-Compressed network frames are no longer gated on the LCD's hardware decode;
-LCD decode failures have a separate counter and do not stop publication.
+## HDMI sound
 
-ASan/UBSan tests cover bounded JPEG SOF parsing, PPA geometry/quantization,
-metadata/frame pairing under concurrent publication, publication and stream
-progress while the LCD consumer is idle, and socket data integrity/partial
-writes/deadline expiration with a stalled receiver. Viewer checks exercise
-aspect ratio, per-consumer counters and recovery after a deadline closes the
-stream. These checks do not execute physical PPA/JPEG/LCD hardware.
+The pinned USB Audio Class driver shares the existing USB host with video.
+Known MS2109 IDs `345f:2109` and `534d:2109` are supported, using the card's
+48 kHz, two-channel, 16-bit PCM audio input. Audio is taken from HDMI;
+the board microphone is not captured. Cards without that advertised format
+remain video-only and log an audio negotiation error.
 
-Physical checks after flashing: confirm the native-backend startup log and
-`display_backend=native-jpeg-ppa` in `/status`; compare capture/LCD/network rates
-and the five-second stage timing logs. Use a changing HDMI timestamp or LED
-and record actual LCD/browser latency, first separately and then simultaneously.
-Verify colour bars, preserved aspect ratio, touch/debug overlays and stable
-long-running DMA/cache behavior. Throttle a client: it must reconnect rather
-than accumulate seconds of video, while capture and LCD updates continue.
-No physical frame rate or latency improvement is claimed from compilation.
+USB audio capture, I2S speaker playback and browser delivery use separate
+workers. Audio is retained in six 20 ms blocks in PSRAM. Consumers take their
+own copies and skip old blocks when more than 60 ms behind. The browser
+uses Web Audio with a small playback buffer; delayed/discontinuous audio is
+flushed instead of growing a long queue. It works on the device's HTTP LAN
+page without HTTPS/AudioWorklet. Network blocks have a 100 ms send deadline.
+One audio listener is supported independently of the one video viewer.
 
-Native-update checks passed with pinned ESP-IDF v6.1 for `esp32s31`: final
-application size 1,556,032 bytes in the 6 MiB partition, static DIRAM 165,104
-bytes. Symbol inspection confirms `jpeg_decoder_process`,
-`ppa_do_scale_rotate_mirror`, `lv_draw_ppa_init` and `lv_draw_ppa_img` are linked,
-with no `frame_scale_rgb565` symbol. A fresh, separate SDK configuration selects
-the documented PPA, 64-byte alignment, 64 KiB TCP send window and 250 ms send
-budget from defaults. The full PPA compile reported one upstream LVGL
-unused-variable warning; application checks and the final build pass.
+`MS2109 wireless display` menuconfig settings allow disabling audio capture or
+local speaker playback and changing the initial volume. Existing configurations
+pick up these new options automatically. Browser sound starts muted until the
+user clicks **Enable sound**. The device speaker plays automatically at its
+configured volume, even while setting up Wi-Fi. Speaker settings are runtime
+settings and reset to the configured default after reboot.
+
+Audio and MJPEG video have independent buffers; sample-accurate A/V sync is
+not guaranteed. Verify lip sync and real latency with a changing HDMI source.
+An unavailable speaker codec does not prevent browser audio or video capture.
+Use `/audio/status` and `/logs` to diagnose audio connection, dropped blocks
+and codec/I2S errors.
+
+## HTTP endpoints
+
+| URL | Response |
+| --- | --- |
+| `http://DEVICE_IP/` | Browser viewer with reconnect, snapshot and details controls |
+| `http://DEVICE_IP/logs` | Auto-refreshing device logs with download button |
+| `http://DEVICE_IP/logs.txt` | Plain-text recent application logs |
+| `http://DEVICE_IP/status` | JSON capture and Wi-Fi metrics |
+| `http://DEVICE_IP/snapshot.jpg` | Latest fresh JPEG; 503 when unavailable |
+| `http://DEVICE_IP/audio/status` | Audio connection, format, speaker settings and counters |
+| `http://DEVICE_IP/audio/control` | POST form `volume=0..100&mute=0/1` for the device speaker |
+| `http://DEVICE_IP:82/audio.pcm` | Framed PCM stream for one browser audio listener |
+| `http://DEVICE_IP:81/stream` | Multipart MJPEG stream |
+
+The logs also work during Wi-Fi setup at **http://192.168.4.1/logs**. They
+retain the most recent 16 KiB of ESP application logs in RAM (configurable),
+including enumeration errors, USB identity/speed, advertised modes, stream
+start and JPEG failures. Download the logs after connecting/reconnecting the
+card if capture still fails. The buffer resets on reboot and reports overwritten
+or truncated bytes; ROM/bootloader and raw `printf` descriptor dumps remain
+serial-only. Serial logging continues alongside browser logging.
+
+These are local HTTP endpoints without authentication. Keep them on your
+trusted LAN. They do not require an internet service or a browser camera plugin.
+
+## Checks
+
+```sh
+sh tests/run.sh
+cd firmware
+idf.py --preview build size
+```
+
+Host tests exercise malformed/overlong credentials, SSID escaping, MS2109
+payload-header boundaries and aspect-preserving RGB565 scaling with padded
+source strides, including 720p colour bars and a scaler reference comparison.
+The actual UVC bulk callback is tested with ZLP delimiters, continuation/final
+headers, frame-ID changes, error flags and standard-camera packets.
+They use AddressSanitizer and UndefinedBehaviorSanitizer.
+They also check captive DNS packet bounds and concurrent snapshot ownership,
+including rejecting stale frames after capture disconnects. Audio tests check
+PCM consumer ownership, backlog limits, reconnect generations, mono mixing and
+control validation. With Node.js installed they also check C-to-JavaScript packet
+framing, signed stereo playback, user-gesture start/stop and jitter scheduling. Log-ring tests
+check wrapping, oversized writes, overwrite counts and bounded snapshots.
+See [THIRD_PARTY.md](THIRD_PARTY.md) for reused code and licenses.
+
+## HDMI audio update
+
+The supplied UART descriptor log identifies a separate AudioStreaming interface
+3, endpoint 0x82 IN isochronous, 192-byte maximum packets, High-Speed interval
+4 (1 ms). Its format bytes describe two PCM16 channels at 48000 Hz. Managed
+`usb_host_uac` 1.5.0 supports ESP32-S31 and shares the existing USB host with
+UVC. Capture negotiates that exact audio format for known MS2109 VID/PIDs.
+The application does not capture the board microphone.
+
+USB callback events only set flags/queue connection and removal handles. One
+application task owns audio open/read/close, including deferred deletion after
+the driver's disconnect callback. Partial reads accumulate into 20 ms blocks.
+Playback and HTTP consumers copy from a bounded six-block PSRAM ring, each with
+its own cursor; a slow consumer skips to current audio. Stream generations
+reset on disconnect. Consumers reject data older than 100 ms. Local playback
+mixes stereo into dual mono, uses the Korvo BSP ES8389 codec and I2S DMA, and
+feeds silence during missing data. Codec errors do not stop video/browser audio.
+
+The browser fetches framed PCM on independent port 82 after a user gesture.
+Its decoder handles arbitrary HTTP fragmentation/coalescing with fixed-size
+buffers, validates the PCM1 header, and schedules signed stereo samples using
+Web Audio. Continuous packets share a sample timeline; discontinuities and
+excess playback backlog flush queued nodes. Disabled sound, page exit and idle
+network timeouts abort fetch/playback. Device-speaker and browser gain controls
+are separate; device settings reset after reboot. Audio and MJPEG buffers are
+independent and do not guarantee precise A/V synchronization.
+
+Host sanitizer tests cover PCM-ring bounds, independent consumer ownership,
+slow-consumer skips, sequence wrap, disconnect generations, wire encoding,
+mono-mix extrema and malformed volume/mute forms. Node tests consume a fixture
+from the actual C wire encoder and check chunk fragmentation, coalescing,
+malformed/truncated packets, signed stereo samples, no autoplay, jitter-resistant
+continuous scheduling and disabling/flushing playback.
+
+Physical acceptance: provide HDMI with left-only/right-only tones, then speech
+and a click/flash test. Verify both channels in the browser and a mix on the board
+speaker. Test local mute/volume separately from browser sound. Open video and
+audio together, monitor capture/PPA/audio counters, and check for CPU/heap loss,
+crackling, drift or increased video latency. Repeatedly unplug/replug USB and
+stop/restart HDMI; audio must recover without retaining old samples or handles.
+Throttle browser audio: it must reconnect/drop delayed blocks while video and
+local playback continue. Confirm sound during Wi-Fi AP setup and after reconnect.
+No board, speaker or MS2109 is attached to the workspace; audible playback,
+USB isochronous timing and end-to-end A/V latency remain hardware checks.
+
+Audio-update checks passed with ESP-IDF v6.1 for ESP32-S31: application image
+1,662,728 bytes in the 6 MiB partition and static DIRAM 169,152 bytes. All
+ASan/UBSan host suites and both browser PCM/framing/playback checks passed.
+The managed dependency lock pins USB UAC 1.5.0 and the existing USB host 1.6.0.

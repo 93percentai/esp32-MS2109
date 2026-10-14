@@ -26,3 +26,8 @@ ${CC:-cc} -D_POSIX_C_SOURCE=200809L -std=c11 -Wall -Wextra -Werror -g -fsanitize
     -Itests/support/deadline -Ifirmware/main tests/test_deadline_send.c firmware/main/deadline_send.c \
     -o work/tests/test_deadline_send
 ./work/tests/test_deadline_send
+${CC:-cc} -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined \
+    -Ifirmware/main tests/test_pcm.c firmware/main/pcm_ring.c firmware/main/form_codec.c \
+    -o work/tests/test_pcm
+./work/tests/test_pcm work/tests/audio-packet.bin
+if command -v node >/dev/null 2>&1; then node tests/test_pcm_player.js; fi
